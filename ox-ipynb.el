@@ -93,6 +93,9 @@
                                (R . (kernelspec . ((display_name . "R")
                                                    (language . "R")
                                                    (name . "ir"))))
+			       (jupyter-R . (kernelspec . ((display_name . "R")
+							   (language . "R")
+							   (name . "ir"))))
                                (julia . (kernelspec . ((display_name . "Julia 0.6.0")
                                                        (language . "julia")
                                                        (name . "julia-0.6"))))
@@ -142,7 +145,13 @@
                            (mimetype . "text/x-r-source")
                            (name . "R")
                            (pygments_lexer . "r")
-                           (version . "3.3.2")))))
+                           (version . "3.3.2"))))
+    (jupyter-R . (language_info . ((codemirror_mode . "r")
+				   (file_extension . ".r")
+				   (mimetype . "text/x-r-source")
+				   (name . "R")
+				   (pygments_lexer . "r")
+				   (version . "3.3.2")))))
   "These get injected into notebook metadata.
 They are reverse-engineered from existing notebooks.")
 
@@ -172,11 +181,18 @@ The cdr of SRC-RESULT is the end position of the results."
          html
          latex
 	 md)
-
-    ;; Handle inline images first
-    (while (string-match "\\[\\[file:\\(.*?\\)\\]\\]" (or results "") start)
+    
+    ;; Handle inline images first This is a clunky solution, using pattern
+    ;; matching. Another option might be parsing the string and map over the
+    ;; file links? It looks like I used to rely on these being file links, but
+    ;; new versions of jupyter-emacs don't use file (or I patched that myself).
+    (while (string-match org-any-link-re (or results ""))
+      ;; while (string-match "\\[\\[\\(?:file:\\)?\\(.*?\\)\\]\\]" (or results "") start)
       (setq start (match-end 0))
-      (setq img-path (match-string 1 results)
+      (setq img-path (match-string 2 results)
+	    ;; We delete the thing we found if it is an image
+	    results (when (image-supported-file-p img-path)
+		      (replace-match "" nil nil results))
             img-data (base64-encode-string
                       (encode-coding-string
 		       (if (file-exists-p img-path)
@@ -193,10 +209,7 @@ The cdr of SRC-RESULT is the end position of the results."
 				("text/plain" . "<matplotlib.figure.Figure>")))
 		       (metadata . ,(make-hash-table))
 		       (output_type . "display_data"))))))
-    ;; now remove the inline images and put the results in.
-    (setq results (s-trim (replace-regexp-in-string "\\[\\[file:\\(.*?\\)\\]\\]" ""
-                                                    (or results ""))))
-
+    
     ;; Check for HTML cells. I think there can only be one I don't know what the
     ;; problem is, but I can't get the match-end functions to work correctly
     ;; here. Its like the match-data is not getting updated.
@@ -243,15 +256,16 @@ The cdr of SRC-RESULT is the end position of the results."
 			    (output_type . "display_data")))))
 
     ;; output cells
-    (unless (string= "" results)
+    (unless (or (string= "" results) (null results))
       (setq output-cells (append `(((name . "stdout")
-                                    (output_type . "stream")
-                                    (text . ,results)))
+				    (output_type . "stream")
+				    (text . ,results)))
                                  output-cells)))
 
 
     `((cell_type . "code")
       (execution_count . 1)
+      (id . ,(org-id-uuid))
       ;; the hashtable trick converts to {} in json. jupyter can't take a null here.
       (metadata . ,src-metadata)
       (outputs . ,(if (null output-cells)
@@ -409,10 +423,12 @@ version was incorrectly modifying them."
 	(if attachments
 	    `((attachments . ,attachments)
 	      (cell_type . "markdown")
+	      (id . ,(org-id-uuid))
 	      (metadata . ,(or metadata (make-hash-table)))
 	      (source . ,(vconcat
 			  (list md))))
 	  `((cell_type . "markdown")
+	    (id . ,(org-id-uuid))
 	    (metadata . ,(or metadata (make-hash-table)))
 	    (source . ,(vconcat
 			(list md)))))
@@ -468,6 +484,7 @@ html I think. That is not currently supported.
                             (or value "")))))
     (when keywords
       `((cell_type . "markdown")
+	(id . ,(org-id-uuid))
         (metadata . ,(make-hash-table))
         (source . ,(vconcat keywords))))))
 
@@ -643,6 +660,7 @@ nil:END:"  nil t)
 	  (setq title_string (format "%s**Date:** %s\n\n" title_string date)))
 
 	(push `((cell_type . "markdown")
+		(id . ,(org-id-uuid))
 		(metadata . ,(make-hash-table))
 		(source . ,title_string))
 	      cells)))
@@ -758,7 +776,7 @@ nil:END:"  nil t)
                 `((cells . ,(reverse cells)))
                 (list metadata)
                 '((nbformat . 4)
-                  (nbformat_minor . 0))))
+                  (nbformat_minor . 5))))
 
     data))
 
